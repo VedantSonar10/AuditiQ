@@ -4,34 +4,54 @@ import { NAV_ITEMS } from "@/lib/nav";
 import { useApp } from "@/lib/store";
 
 export function Header() {
-  const pathname  = usePathname();
+  const pathname = usePathname();
   const { result } = useApp();
-  const current = NAV_ITEMS.find(i => pathname === `/${i.id}` || (pathname === "/" && i.id === "dashboard"));
+  const current = NAV_ITEMS.find(i =>
+    pathname === `/${i.id}` || (pathname === "/" && i.id === "dashboard")
+  );
   const hasData = Boolean(result);
 
   return (
     <header style={{
-      height:56, borderBottom:"1px solid #0E1E33",
-      background:"rgba(3,11,24,0.95)", backdropFilter:"blur(8px)",
-      display:"flex", alignItems:"center", padding:"0 32px", gap:16,
+      height:48,
+      borderBottom:"1px solid rgba(255,255,255,0.05)",
+      background:"rgba(5,13,26,0.96)",
+      backdropFilter:"blur(8px)",
+      display:"flex", alignItems:"center", padding:"0 24px", gap:16,
       position:"sticky", top:0, zIndex:30,
     }}>
       <div style={{ flex:1, minWidth:0 }}>
-        <h1 style={{ fontSize:15, fontWeight:700, color:"#E6EFF8", letterSpacing:"-0.01em", lineHeight:1 }}>
+        <span style={{ fontSize:14, fontWeight:600, color:"#E6EFF8", letterSpacing:"-0.01em" }}>
           {current?.label ?? "Dashboard"}
-        </h1>
-        <p style={{ fontSize:10, color:"#3D5975", marginTop:2 }}>AuditIQ · Expense Risk Intelligence</p>
+        </span>
       </div>
-      <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-        <span className="status-pill idle"><span className="status-dot"/>Local</span>
-        {hasData ? (
-          <span className="status-pill ok">
-            <span className="status-dot" style={{ animation:"pulseDot 2s ease-in-out infinite" }}/>
-            Analysis active — {result!.summary_metrics.total_reports} reports
-          </span>
-        ) : (
-          <span className="status-pill idle"><span className="status-dot"/>No analysis loaded</span>
-        )}
+      <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+        <span style={{
+          display:"inline-flex", alignItems:"center", gap:5,
+          fontSize:11, color:"#3D5975", padding:"3px 8px",
+          border:"1px solid rgba(255,255,255,0.05)", borderRadius:5,
+        }}>
+          <span style={{ width:5, height:5, borderRadius:"50%", background:"#2A4A6A", display:"inline-block" }}/>
+          Local
+        </span>
+        <span style={{
+          display:"inline-flex", alignItems:"center", gap:5,
+          fontSize:11, padding:"3px 8px",
+          border:`1px solid ${hasData ? "rgba(12,138,92,0.2)" : "rgba(255,255,255,0.05)"}`,
+          borderRadius:5,
+          color: hasData ? "#6EE7B7" : "#3D5975",
+          background: hasData ? "rgba(12,138,92,0.06)" : "transparent",
+        }}>
+          <span style={{
+            width:5, height:5, borderRadius:"50%",
+            background: hasData ? "#6EE7B7" : "#2A4A6A",
+            display:"inline-block",
+            animation: hasData ? "pulseDot 2s ease-in-out infinite" : "none",
+          }}/>
+          {hasData
+            ? `${result!.summary_metrics.total_reports} reports · ${(result!.summary_metrics.total_spend/1000).toFixed(0)}K analyzed`
+            : "No data loaded"}
+        </span>
       </div>
     </header>
   );

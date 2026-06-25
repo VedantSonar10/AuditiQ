@@ -1,26 +1,42 @@
 "use client";
 import { useRouter } from "next/navigation";
-import { RefreshCw } from "lucide-react";
-import { KpiCard }   from "@/components/ui/kpi-card";
-import { Alert }     from "@/components/ui/alert";
+import { RefreshCw, ArrowRight } from "lucide-react";
 import {
   RiskDistributionChart, TopRiskEmployeesChart,
-  MonthlySpendChart, CategorySpendChart, DeptScatterChart,
+  MonthlySpendChart, CategorySpendChart,
 } from "@/components/charts";
 import { useApp } from "@/lib/store";
-import { usd, usdf, pct, toRiskDistribution, toMonthlySpend, toCategorySpend, toDeptScatter } from "@/lib/utils";
+import { usd, usdf, pct, toRiskDistribution, toMonthlySpend, toCategorySpend, riskColor } from "@/lib/utils";
 
-const S = {
-  wrap:   { padding:"32px 32px 48px" },
-  row14:  { height:14 },
-  charts: { display:"grid", gridTemplateColumns:"240px 1fr 1.4fr", gap:16 } as React.CSSProperties,
-  charts2:{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 } as React.CSSProperties,
-  kpi4:   { display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:16 } as React.CSSProperties,
-  kpi5:   { display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:16 } as React.CSSProperties,
-  pCards: { display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:16 } as React.CSSProperties,
-  chartBox:{ background:"#080F1E", border:"1px solid #0E1E33", borderRadius:10, padding:16 },
-  pCard:  { background:"#070E1C", border:"1px solid #0E1E33", borderRadius:10, padding:20, borderTop:"2px solid" },
+const T = {
+  surface:    "#080F1E",
+  surfaceB:   "#0A1220",
+  border:     "rgba(255,255,255,0.06)",
+  borderFaint:"rgba(255,255,255,0.04)",
+  dimText:    "#3D5975",
+  bodyText:   "#6A8BAD",
+  primary:    "#E6EFF8",
 };
+
+function ChartBox({ title, children, style }: { title:string; children:React.ReactNode; style?:React.CSSProperties }) {
+  return (
+    <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:8, padding:16, ...style }}>
+      <div style={{ fontSize:11, fontWeight:500, color:T.bodyText, marginBottom:12, letterSpacing:"0.01em" }}>{title}</div>
+      {children}
+    </div>
+  );
+}
+
+function Metric({ label, value, sub, accent }: { label:string; value:string; sub?:string; accent?:string }) {
+  return (
+    <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:8, padding:"14px 16px", position:"relative", overflow:"hidden" }}>
+      {accent && <div style={{ position:"absolute", top:0, left:0, right:0, height:2, background:accent }}/>}
+      <div style={{ fontSize:10, fontWeight:500, color:T.dimText, textTransform:"uppercase", letterSpacing:"0.1em", marginBottom:6 }}>{label}</div>
+      <div style={{ fontSize:value.length > 8 ? 17 : 20, fontWeight:700, color:T.primary, letterSpacing:"-0.02em", lineHeight:1 }}>{value}</div>
+      {sub && <div style={{ fontSize:11, color:T.dimText, marginTop:4 }}>{sub}</div>}
+    </div>
+  );
+}
 
 export function CommandCenter() {
   const { result, setResult, setLoading, geminiKey } = useApp();
@@ -32,14 +48,21 @@ export function CommandCenter() {
   const dups   = result.duplicates;
   const high   = m.high_risk;
   const total  = m.total_reports;
-  const expHigh = scored.filter(e => e.risk_level === "High").reduce((s, e) => s + e.amount, 0);
-  const expAll  = scored.filter(e => e.risk_level !== "Low").reduce((s, e) => s + e.amount, 0);
-  const dupVal  = dups.reduce((s, d) => s + d.amount, 0);
-  const topDept = Object.entries(
-    scored.reduce((acc, e) => { acc[e.department] = (acc[e.department] || 0) + e.risk_score; return acc; }, {} as Record<string,number>)
-  ).sort(([,a],[,b]) => b - a)[0]?.[0] ?? "Sales";
+  const expAll  = scored.filter(e => e.risk_level !== "Low").reduce((s,e) => s+e.amount, 0);
+  const dupVal  = dups.reduce((s,d) => s+d.amount, 0);
+  const avgR    = m.avg_risk_score;
+  const avgColor = avgR >= 61 ? "#C93636" : avgR >= 31 ? "#C97D10" : "#0C8A5C";
 
-  const avgR = m.avg_risk_score;
+  const topEmp = Object.values(
+    scored.reduce((acc, e) => {
+      if (!acc[e.employeeId]) acc[e.employeeId] = { name:e.employeeName, dept:e.department, total:0, count:0 };
+      acc[e.employeeId].total += e.risk_score;
+      acc[e.employeeId].count++;
+      return acc;
+    }, {} as Record<string,{name:string;dept:string;total:number;count:number}>)
+  ).map(d => ({ ...d, avg: d.total/d.count })).sort((a,b) => b.avg - a.avg).slice(0,5);
+
+  const flaggedQueue = [...scored].filter(e => e.risk_score > 0).sort((a,b) => b.risk_score - a.risk_score).slice(0,5);
 
   async function rerun() {
     setLoading(true);
@@ -50,107 +73,133 @@ export function CommandCenter() {
     } finally { setLoading(false); }
   }
 
-  const priorityCards = [
-    { label:"Priority 1 — Immediate (48h)", title:`Review ${high} High-Risk Reports`, body:`${high} expense reports scored 61+ risk points. Manual verification and receipt validation required before next payroll cycle.`, href:"/investigation", cta:"Open Risk Investigation →", color:"#C93636" },
-    { label:"Priority 2 — This Week", title:`Recover ${usdf(dupVal)} in Duplicates`, body:`${m.potential_duplicates} potential duplicate pairs detected. Cross-reference payroll records and initiate clawback procedures.`, href:"/compliance", cta:"View Duplicate Claims →", color:"#C97D10" },
-    { label:"Priority 3 — This Month", title:`${topDept} Department Review`, body:`${topDept} shows the highest average risk score. Schedule T&E policy refresher and review per-diem limits.`, href:"/departments", cta:"View Department Intel →", color:"#1659F5" },
-  ];
-
   return (
-    <div style={S.wrap}>
-      {/* Header */}
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:16, marginBottom:20 }}>
+    <div style={{ padding:"24px 24px 48px" }}>
+
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
         <div>
-          <div className="eyebrow" style={{ marginBottom:4 }}>Executive Overview</div>
-          <h1 style={{ fontSize:22, fontWeight:800, color:"#E6EFF8", letterSpacing:"-0.025em", lineHeight:1.15 }}>
-            Risk Intelligence Command Center
+          <h1 style={{ fontSize:16, fontWeight:600, color:T.primary, letterSpacing:"-0.01em", margin:0, lineHeight:1 }}>
+            Executive Overview
           </h1>
-          <p style={{ fontSize:13, color:"#3D5975", marginTop:4 }}>
-            Portfolio-wide analysis · Prioritized by financial exposure
+          <p style={{ fontSize:12, color:T.dimText, marginTop:4 }}>
+            {total} expense reports · portfolio risk {avgR.toFixed(0)}/100
           </p>
         </div>
-        <button onClick={rerun} style={{ display:"flex", alignItems:"center", gap:6, padding:"8px 14px", borderRadius:8, border:"1px solid #0E1E33", background:"transparent", color:"#6A8BAD", fontSize:12, cursor:"pointer" }}>
-          <RefreshCw size={13}/> Refresh
-        </button>
-      </div>
-
-      {/* Alert */}
-      {high > 0 ? (
-        <Alert variant="danger" className="mb-4">
-          <strong>⚑ {high} high-risk report{high !== 1 ? "s" : ""} require immediate review</strong>
-          {" "}— estimated exposure {usdf(expHigh + dupVal)}.{" "}
-          <button onClick={() => router.push("/investigation")} style={{ textDecoration:"underline", background:"none", border:"none", color:"inherit", cursor:"pointer", fontSize:"inherit" }}>
-            Open Risk Investigation →
+        <div style={{ display:"flex", gap:8 }}>
+          {high > 0 && (
+            <button onClick={() => router.push("/investigation")} style={{
+              display:"inline-flex", alignItems:"center", gap:6,
+              padding:"7px 12px", borderRadius:7,
+              background:"rgba(201,54,54,0.12)", color:"#F28B8B",
+              border:"1px solid rgba(201,54,54,0.22)", fontSize:12, fontWeight:600, cursor:"pointer",
+            }}>
+              ⚑ {high} High-Risk — Review now
+            </button>
+          )}
+          <button onClick={rerun} style={{
+            display:"inline-flex", alignItems:"center", gap:5,
+            padding:"7px 12px", borderRadius:7,
+            background:"transparent", color:T.bodyText,
+            border:`1px solid ${T.border}`, fontSize:12, cursor:"pointer",
+          }}>
+            <RefreshCw size={12}/> Refresh
           </button>
-        </Alert>
-      ) : (
-        <Alert variant="success" className="mb-4">
-          ✓ No high-risk reports detected. {m.medium_risk} medium-risk report{m.medium_risk !== 1 ? "s" : ""} flagged.
-        </Alert>
-      )}
-
-      {/* KPI Row 1 */}
-      <div style={{ ...S.kpi4, marginBottom:16 }}>
-        <KpiCard label="Total Spend Analyzed" value={usd(m.total_spend)}  accent="cobalt"  sub={`${total} expense reports`}/>
-        <KpiCard label="Financial Exposure"   value={usd(expAll)}         accent="crimson" sub="High + medium risk spend"/>
-        <KpiCard label="Duplicate Exposure"   value={usdf(dupVal)}        accent="amber"   sub={`${m.potential_duplicates} potential pairs`}/>
-        <KpiCard label="Potential Recovery"   value={usd(dupVal * 0.85)}  accent="emerald" sub="Est. recoverable via clawback"/>
-      </div>
-
-      {/* KPI Row 2 */}
-      <div style={{ ...S.kpi5, marginBottom:20 }}>
-        <KpiCard label="High Risk Reports"   value={String(m.high_risk)}   accent="crimson" sub={`${pct(m.high_risk, total)} of portfolio`}/>
-        <KpiCard label="Medium Risk Reports" value={String(m.medium_risk)} accent="amber"   sub={`${pct(m.medium_risk, total)} of portfolio`}/>
-        <KpiCard label="Low Risk Reports"    value={String(m.low_risk)}    accent="emerald" sub={`${pct(m.low_risk, total)} of portfolio`}/>
-        <KpiCard label="Audit Hours Saved"   value={`${Math.round(total*0.2)}h`} accent="cobalt" sub="vs. manual review"/>
-        <KpiCard label="Avg Portfolio Risk"  value={`${avgR.toFixed(0)}/100`}
-                 accent={avgR >= 61 ? "crimson" : avgR >= 31 ? "amber" : "emerald"}
-                 sub="Across all reports"/>
-      </div>
-
-      {/* Charts Row 1 */}
-      <div style={{ ...S.charts, marginBottom:16 }}>
-        <div style={S.chartBox}>
-          <div style={{ fontSize:11, fontWeight:600, color:"#6A8BAD", marginBottom:12 }}>Portfolio Risk Split</div>
-          <RiskDistributionChart data={toRiskDistribution(scored)}/>
-        </div>
-        <div style={S.chartBox}>
-          <div style={{ fontSize:11, fontWeight:600, color:"#6A8BAD", marginBottom:12 }}>Spend vs. Risk by Department</div>
-          <DeptScatterChart data={toDeptScatter(scored)}/>
-        </div>
-        <div style={S.chartBox}>
-          <div style={{ fontSize:11, fontWeight:600, color:"#6A8BAD", marginBottom:12 }}>Employees by Avg Risk Score</div>
-          <TopRiskEmployeesChart expenses={scored}/>
         </div>
       </div>
 
-      {/* Charts Row 2 */}
-      <div style={{ ...S.charts2, marginBottom:24 }}>
-        <div style={S.chartBox}>
-          <div style={{ fontSize:11, fontWeight:600, color:"#6A8BAD", marginBottom:12 }}>Monthly Spend Trend</div>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:10, marginBottom:12 }}>
+        <Metric label="Total Reports"     value={String(total)}            sub={usdf(m.total_spend) + " analyzed"} accent="#1659F5"/>
+        <Metric label="Financial Exposure" value={usd(expAll)}             sub="High + medium risk"                accent="#C93636"/>
+        <Metric label="Duplicate Exposure" value={usd(dupVal)}             sub={`${m.potential_duplicates} pairs`} accent="#C97D10"/>
+        <Metric label="Potential Recovery" value={usd(dupVal * 0.85)}      sub="Est. via clawback"                 accent="#0C8A5C"/>
+        <Metric label="Avg Risk Score"     value={`${avgR.toFixed(0)}/100`} sub={`${pct(high, total)} high risk`}  accent={avgColor}/>
+      </div>
+
+      <div style={{ display:"grid", gridTemplateColumns:"220px 1fr", gap:10, marginBottom:12 }}>
+  <ChartBox title="Risk Distribution" style={{ overflow:"hidden" }}>
+  <div style={{ height:220 }}>
+    <RiskDistributionChart data={toRiskDistribution(scored)}/>
+  </div>
+</ChartBox>
+        <ChartBox title="Monthly Spend Trend">
           <MonthlySpendChart data={toMonthlySpend(scored)}/>
-        </div>
-        <div style={S.chartBox}>
-          <div style={{ fontSize:11, fontWeight:600, color:"#6A8BAD", marginBottom:12 }}>Spend by Expense Category</div>
-          <CategorySpendChart data={toCategorySpend(scored)}/>
-        </div>
+        </ChartBox>
       </div>
 
-      {/* Management Actions */}
-      <div className="eyebrow" style={{ marginBottom:16 }}>Management Recommended Actions</div>
-      <div style={S.pCards}>
-        {priorityCards.map(({ label, title, body, href, cta, color }) => (
-          <div key={title} style={{ ...S.pCard, borderTopColor: color }}>
-            <div style={{ fontSize:9, fontWeight:700, color:"#1659F5", textTransform:"uppercase", letterSpacing:"0.12em", marginBottom:8 }}>
-              {label}
-            </div>
-            <div style={{ fontSize:14, fontWeight:700, color:"#E6EFF8", marginBottom:8, letterSpacing:"-0.01em", lineHeight:1.3 }}>
-              {title}
-            </div>
-            <p style={{ fontSize:12, color:"#3D5975", lineHeight:1.6, marginBottom:14 }}>{body}</p>
-            <button onClick={() => router.push(href)}
-              style={{ fontSize:12, fontWeight:600, color:"#4D8EFF", background:"none", border:"none", cursor:"pointer", padding:0 }}>
-              {cta}
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 220px", gap:10, marginBottom:12 }}>
+
+        <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:8, padding:16 }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
+            <div style={{ fontSize:11, fontWeight:500, color:T.bodyText }}>Investigation Queue</div>
+            <button onClick={() => router.push("/investigation")} style={{ display:"inline-flex", alignItems:"center", gap:3, fontSize:11, color:"#1659F5", background:"none", border:"none", cursor:"pointer", padding:0, fontWeight:500 }}>
+              View all <ArrowRight size={11}/>
+            </button>
+          </div>
+          <div style={{ display:"flex", flexDirection:"column" }}>
+            {flaggedQueue.map((row, i) => {
+              const rc = riskColor(row.risk_score);
+              return (
+                <div key={row.reportId} onClick={() => router.push("/investigation")} style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 0", borderTop: i === 0 ? "none" : `1px solid ${T.borderFaint}`, cursor:"pointer" }}>
+                  <div style={{ width:32, height:32, borderRadius:6, background:`rgba(${rc === "#C93636" ? "201,54,54" : rc === "#C97D10" ? "201,125,16" : "12,138,92"},0.1)`, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+                    <span style={{ fontSize:12, fontWeight:700, color:rc }}>{row.risk_score}</span>
+                  </div>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontSize:12, fontWeight:500, color:T.primary, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{row.employeeName}</div>
+                    <div style={{ fontSize:11, color:T.dimText, marginTop:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{row.expenseType} · {row.vendor} · {usdf(row.amount)}</div>
+                  </div>
+                  <div style={{ fontSize:10, fontWeight:600, color:rc, background:`rgba(${rc === "#C93636" ? "201,54,54" : rc === "#C97D10" ? "201,125,16" : "12,138,92"},0.1)`, padding:"2px 7px", borderRadius:4 }}>
+                    {row.risk_level}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:8, padding:16 }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
+            <div style={{ fontSize:11, fontWeight:500, color:T.bodyText }}>Top Risk Employees</div>
+            <button onClick={() => router.push("/employees")} style={{ display:"inline-flex", alignItems:"center", gap:3, fontSize:11, color:"#1659F5", background:"none", border:"none", cursor:"pointer", padding:0, fontWeight:500 }}>
+              Profiles <ArrowRight size={11}/>
+            </button>
+          </div>
+          {topEmp.map((emp, i) => {
+            const rc = riskColor(emp.avg);
+            const pctWidth = Math.min((emp.avg / 100) * 100, 100);
+            return (
+              <div key={emp.name} style={{ padding:"8px 0", borderTop: i === 0 ? "none" : `1px solid ${T.borderFaint}` }}>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:4 }}>
+                  <div>
+                    <span style={{ fontSize:12, fontWeight:500, color:T.primary }}>{emp.name}</span>
+                    <span style={{ fontSize:11, color:T.dimText, marginLeft:7 }}>{emp.dept}</span>
+                  </div>
+                  <span style={{ fontSize:12, fontWeight:700, color:rc }}>{emp.avg.toFixed(0)}</span>
+                </div>
+                <div style={{ height:2, background:T.borderFaint, borderRadius:9999, overflow:"hidden" }}>
+                  <div style={{ width:`${pctWidth}%`, height:"100%", background:rc, borderRadius:9999, transition:"width 0.6s ease" }}/>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <ChartBox title="Spend by Category">
+          <CategorySpendChart data={toCategorySpend(scored)}/>
+        </ChartBox>
+      </div>
+
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:10 }}>
+        {[
+          { accent:"#C93636", priority:"Priority 1 · 48h",        title:`${high} High-Risk Report${high !== 1 ? "s" : ""}`, body:`${high} reports scored 61+. Verify before next payroll.`,          href:"/investigation", cta:"Open Investigation" },
+          { accent:"#C97D10", priority:"Priority 2 · This week",   title:`${usdf(dupVal)} Duplicate Exposure`,                body:`${m.potential_duplicates} potential pairs. Initiate clawback.`,  href:"/compliance",    cta:"View Duplicates"   },
+          { accent:"#1659F5", priority:"Priority 3 · This month",  title:"Department Policy Review",                          body:`${m.medium_risk} medium-risk reports need routine audit.`,        href:"/departments",   cta:"View Departments"  },
+        ].map(({ accent, priority, title, body, href, cta }) => (
+          <div key={title} style={{ background:T.surface, border:`1px solid ${T.border}`, borderTop:`2px solid ${accent}`, borderRadius:8, padding:16 }}>
+            <div style={{ fontSize:10, fontWeight:600, color:T.dimText, textTransform:"uppercase", letterSpacing:"0.1em", marginBottom:6 }}>{priority}</div>
+            <div style={{ fontSize:13, fontWeight:600, color:T.primary, marginBottom:5, letterSpacing:"-0.01em" }}>{title}</div>
+            <p style={{ fontSize:12, color:T.bodyText, lineHeight:1.5, margin:0, marginBottom:12 }}>{body}</p>
+            <button onClick={() => router.push(href)} style={{ display:"inline-flex", alignItems:"center", gap:4, fontSize:12, fontWeight:500, color:"#4D8EFF", background:"none", border:"none", cursor:"pointer", padding:0 }}>
+              {cta} <ArrowRight size={11}/>
             </button>
           </div>
         ))}

@@ -34,10 +34,10 @@ const fmt = (fn: (v: number) => string) => (v: any) => fn(Number(v));
 export function RiskDistributionChart({ data }: { data: RiskDistributionDatum[] }) {
   const total = data.reduce((s, d) => s + d.value, 0);
   return (
-    <div className="relative" style={{ height: 240 }}>
+    <div className="relative" style={{ height: 200 }}>
       <ResponsiveContainer width="100%" height="100%">
         <PieChart>
-          <Pie data={data} cx="50%" cy="50%" innerRadius={68} outerRadius={100}
+          <Pie data={data} cx="50%" cy="50%" innerRadius={52} outerRadius={80}
                dataKey="value" paddingAngle={3}>
             {data.map((e, i) => <Cell key={i} fill={e.color} stroke={NAVY} strokeWidth={2}/>)}
           </Pie>
@@ -45,7 +45,7 @@ export function RiskDistributionChart({ data }: { data: RiskDistributionDatum[] 
             formatter={(v, name) => [`${v} reports (${total ? ((Number(v)/total)*100).toFixed(0) : 0}%)`, name]}/>
         </PieChart>
       </ResponsiveContainer>
-      <div style={{ position:"absolute", inset:0, display:"flex", alignItems:"center", justifyContent:"center", pointerEvents:"none", paddingBottom:24 }}>
+      <div style={{ position:"absolute", inset:0, display:"flex", alignItems:"center", justifyContent:"center", pointerEvents:"none", paddingBottom:30 }}>
         <div style={{ textAlign:"center" }}>
           <div style={{ fontSize:22, fontWeight:800, color:"#E6EFF8" }}>{total}</div>
           <div style={{ fontSize:10, color:DIMTXT, marginTop:2 }}>Total</div>
